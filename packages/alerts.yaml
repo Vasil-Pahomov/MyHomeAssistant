@@ -1,0 +1,115 @@
+template:
+  - binary_sensor:
+      - default_entity_id: binary_sensor.any_temperature_low
+        name: "Any Room Temperature Low"        
+        state: >-
+          {% set thresholds = {
+          'sensor.fireplace_temperature': 21,
+          'sensor.livingroom_temperature': 21,
+          'sensor.bathroom_temperature': 22,
+          'sensor.bedroom_temperature': 20,
+            'sensor.nikas_temperature': 20,
+            'sensor.radas_temperature': 18
+          } %}
+          {% set ns = namespace(low=false) %}
+          {% for sensor, threshold in thresholds.items() %}
+            {% if states(sensor) | float(threshold + 1) < threshold %}
+              {% set ns.low = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.low }}
+        delay_on: "00:02:00"   
+        delay_off: "00:02:00"
+      - default_entity_id: binary_sensor.any_temperature_high
+        name: "Any Room Temperature High"
+        state: >-
+          {% set thresholds = {
+            'sensor.fireplace_temperature': 26,
+            'sensor.livingroom_temperature': 26,
+            'sensor.bathroom_temperature': 26,
+            'sensor.bedroom_temperature': 26,
+            'sensor.nikas_temperature': 28,
+            'sensor.radas_temperature': 26
+          } %}
+          {% set ns = namespace(high=false) %}
+          {% for sensor, threshold in thresholds.items() %}
+            {% if states(sensor) | float(threshold - 1) > threshold %}
+              {% set ns.high = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.high }}
+        delay_on: "00:02:00"   
+        delay_off: "00:02:00"
+
+# Alert configuration
+alert:
+  temperature_too_low:
+    name: "Temperature Below Threshold"
+    entity_id: binary_sensor.any_temperature_low
+    state: "on"
+    repeat: 10
+    can_acknowledge: true
+    skip_first: false
+    notifiers:
+      - telegram_notifier
+    message: >-
+      {% set thresholds = {
+        'sensor.fireplace_temperature': 21,
+        'sensor.livingroom_temperature': 21,
+        'sensor.bathroom_temperature': 22,
+        'sensor.bedroom_temperature': 20,
+        'sensor.nikas_temperature': 21,
+        'sensor.radas_temperature': 19
+      } %}
+      {% set low_temps = namespace(sensors=[]) %}
+      {% for sensor, threshold in thresholds.items() %}
+        {% set temp = states(sensor) | float(threshold + 1) %}
+        {% if temp < threshold %}
+          {% set low_temps.sensors = low_temps.sensors + [(state_attr(sensor, 'friendly_name'), temp, threshold)] %}
+        {% endif %}
+      {% endfor %}
+      Low temperature alert:
+      {% for name, temp, threshold in low_temps.sensors %}
+      - {{ name }}: {{ temp }}°C (threshold: {{ threshold }}°C)
+      {% endfor %}
+  temperature_too_high:
+    name: "Temperature Above Threshold"
+    entity_id: binary_sensor.any_temperature_high
+    state: "on"
+    repeat: 10
+    can_acknowledge: true
+    skip_first: false
+    notifiers:
+      - telegram_notifier
+    message: >-
+      {% set thresholds = {
+        'sensor.fireplace_temperature': 26,
+        'sensor.livingroom_temperature': 26,
+        'sensor.bathroom_temperature': 26,
+        'sensor.bedroom_temperature': 26,
+        'sensor.nikas_temperature': 28,
+        'sensor.radas_temperature': 26
+      } %}
+      {% set temps = namespace(sensors=[]) %}
+      {% for sensor, threshold in thresholds.items() %}
+        {% set temp = states(sensor) | float(threshold - 1) %}
+        {% if temp > threshold %}
+          {% set temps.sensors = temps.sensors + [(state_attr(sensor, 'friendly_name'), temp, threshold)] %}
+        {% endif %}
+      {% endfor %}
+      High temperature alert:
+      {% for name, temp, threshold in temps.sensors %}
+      - {{ name }}: {{ temp }}°C (threshold: {{ threshold }}°C)
+      {% endfor %}      
+  co2_fireplace_alert:
+    name: CO2 Warning
+    entity_id: sensor.esp32_bluetooth_proxy_e92274_co2_concentration
+    state: '{{ float(states.sensor.esp32_bluetooth_proxy_e92274_co2_concentration.state, 0) > 1500 }}'
+    repeat: 10  # minutes between notifications
+    can_acknowledge: true
+    skip_first: false
+    notifiers:
+      - telegram_notifier
+    data:
+      message: 'CO2 warning: {{ states.sensor.esp32_bluetooth_proxy_e92274_co2_concentration.state }}'
+ 

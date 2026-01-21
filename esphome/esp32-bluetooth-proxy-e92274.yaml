@@ -1,0 +1,329 @@
+substitutions:
+  name: esp32-bluetooth-proxy-e92274
+  friendly_name: ESP32-FP
+packages:
+  esphome.bluetooth-proxy: github://esphome/bluetooth-proxies/esp32-generic/esp32-generic.yaml@main
+esphome:
+  name: ${name}
+  name_add_mac_suffix: false
+  friendly_name: ${friendly_name}
+
+api:
+  encryption:
+    key: /b5cOptI2r2+P2gfPR0Rf8PD+DBMB6pLjA+GPq5ST+g=
+  reboot_timeout: 30min
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+web_server:
+  port: 80
+
+uart:
+  - id: uart_mhz19
+    rx_pin: GPIO16 # Connect to MH-Z19 TX pin (data *from* sensor)
+    tx_pin: GPIO17 # Connect to MH-Z19 RX pin (data *to* sensor)
+    baud_rate: 9600
+  # UART for PMS7003 (dust sensor)
+  - id: uart_pms7003
+    tx_pin: GPIO22
+    rx_pin: GPIO21
+    baud_rate: 9600
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+display:
+  - platform: tm1637
+    id: tm1637_display
+    clk_pin: GPIO26
+    dio_pin: GPIO27
+    inverted: true
+    update_interval: 500ms
+    length: 4
+    lambda: |-
+      if (id(light_sensor).has_state()) {
+        float light_voltage = id(light_sensor).state;
+        
+        int brightness;
+        if (light_voltage < 0.4) brightness = 7;
+        else if (light_voltage < 0.6) brightness = 6;
+        else if (light_voltage < 1.0) brightness = 5;
+        else if (light_voltage < 2.0) brightness = 4;
+        else if (light_voltage < 2.3) brightness = 3;
+        else if (light_voltage < 2.7) brightness = 2;
+        else if (light_voltage < 3.0) brightness = 1;
+        else brightness = 0;
+        
+        id(tm1637_display).set_intensity(brightness);
+      }
+
+      auto time = id(homeassistant_time).now();
+      if ((millis() % 1000) > 500) {
+        it.printf("%2d.%02d", time.hour, time.minute);
+      } else {
+        it.printf("%2d%02d", time.hour, time.minute);
+      }
+      
+
+      //if (id(co2_sensor_value).has_state()) {
+      //  it.printf("%4.0f", id(co2_sensor_value).state);
+      //} else {
+      //  it.print("----");
+      //}
+ 
+sensor:
+  - platform: mhz19
+    id: co2_sensor
+    uart_id: uart_mhz19
+    co2:
+      name: "CO2 Concentration"
+      unit_of_measurement: "ppm"
+      id: co2_sensor_value
+      icon: "mdi:molecule-co2"
+      accuracy_decimals: 0
+      on_value:
+        then:
+          - script.execute: update_led_status    
+    temperature:
+      name: "MH-Z19 Temperature"
+      unit_of_measurement: "°C"
+      icon: "mdi:thermometer"
+      accuracy_decimals: 1
+    update_interval: 60s
+    # Consider disabling ABC for indoor use. If you do, remember to calibrate manually.
+    # automatic_baseline_calibration: false
+    warmup_time: 75s # Time to discard initial readings after boot
+
+  - platform: pmsx003
+    type: PMSX003
+    uart_id: uart_pms7003
+    pm_1_0:
+      name: "PM1.0"
+    pm_2_5:
+      name: "PM2.5"
+    pm_10_0:
+      name: "PM10.0"    
+    update_interval: 120s
+
+  - platform: adc
+    pin: GPIO34
+    name: "Light Sensor"
+    id: light_sensor
+    update_interval: 100ms
+    filters:
+      - sliding_window_moving_average:
+          window_size: 50
+    attenuation: 12db
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+
+globals:
+  - id: target_r
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: target_g
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: target_b
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: pulse_enabled
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: pulse_min_brightness
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: pulse_period_ms
+    type: int
+    restore_value: no
+    initial_value: '1000'
+  - id: total_brightness
+    type: int
+    restore_value: no
+    initial_value: '255'
+
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB  
+    pin: GPIO25  
+    num_leds: 1  
+    chipset: ws2812
+    name: "Status LED"
+    id: status_led
+    default_transition_length: 0s
+    gamma_correct: 0
+    effects:
+      - addressable_lambda:
+          name: "Dynamic Pulse"
+          update_interval: 50ms
+          lambda: |-
+            static uint32_t last_millis = 0;
+            uint32_t now = millis();
+            
+            if (last_millis == 0) last_millis = now;
+            
+            int brightness = 255;
+            
+            if (id(pulse_enabled) && id(total_brightness)>1) {
+              // Calculate pulse position (0 to 1 over the period)
+              int period = id(pulse_period_ms);
+              int position = now % period;
+              
+              // Create sine wave for smooth pulsing (0 to 1)
+              int half = period / 2;
+              int amin = id(pulse_min_brightness);
+              int amp = 255 - amin;
+
+              brightness = amin + ((position < half)
+                          ? (amp * position) / half
+                          : amp - (amp * (position - half)) / half);
+
+            }
+            
+            int total_brightness_val = id(total_brightness);
+
+            int r = id(target_r) * brightness * total_brightness_val / 255 / 255;
+            int g = id(target_g) * brightness * total_brightness_val / 255 / 255;
+            int b = id(target_b) * brightness * total_brightness_val / 255 / 255;
+
+            if (r<0) r=0;
+            if (g<0) g=0;
+            if (b<0) b=0;
+            if (r>255) r=255;
+            if (g>255) g=255;
+            if (b>255) b=255;
+
+
+            // ESP_LOGD("StatusLED", "bri=%d, rgb=%d %d %d", brightness, r, g, b);
+
+            it[0] = Color(r,g,b);
+
+
+script:
+  - id: update_led_status
+    then:
+      - lambda: |-
+          int co2 = id(co2_sensor_value).state;
+          int r = 0, g = 0, b = 0;
+          bool should_pulse = false;
+          int min_brightness = 255;
+          int period_ms = 1000;
+          
+          // ### calculating total brightness based on light sensor
+          int brightness = 255;
+
+          const float x1 = 0.5,  y1 = 1.0;
+          const float x2 = 1.3,  y2 = 0.5;
+          const float x3 = 3.14, y3 = 1.0/255.0;
+
+          // These constants are computed once at compile time
+          const float div = (x1 - x2)*(x1 - x3)*(x2 - x3);
+
+          const float pa =  (y1*(x2 - x3) - y2*(x1 - x3) + y3*(x1 - x2)) / div;
+          const float pb =  (y1*(x3*x3 - x2*x2) + y2*(x1*x1 - x3*x3) + y3*(x2*x2 - x1*x1)) / div;
+          const float pc =  y1 - pa*x1*x1 - pb*x1;
+
+          if (id(light_sensor).has_state()) {
+            float light_voltage = id(light_sensor).state;
+            
+            brightness = 255 * (pa * light_voltage * light_voltage + pb * light_voltage + pc);
+
+            if (brightness < 1 || light_voltage > x3) brightness = 1;
+            if (brightness > 255 || light_voltage < x1) brightness = 255;
+            id(total_brightness) = brightness;
+          }
+
+          // ### calculating color
+
+          if (brightness <= 1) { //night mode
+            if (!id(co2_sensor_value).has_state()) {
+              r = 0; g = 0; b = 0; // no co2 data - off
+            }
+            else if (co2 <= 600) {
+              r = 0; g = 0; b = 255; // Pure blue at 600 ppm or below
+            }
+            else if (co2 <= 800) {
+              r = 0; g = 255; b = 255; // blue-green
+            }
+            else if (co2 <= 1000) {
+              r = 0; g = 255; b = 0; // green
+            }
+            else if (co2 <= 1500) {
+              r = 255; g = 255; b = 0; // orange
+            }
+            else if (co2 <= 2000) {
+              r = 255; g = 0; b = 0; // red
+            }
+            else {
+              // Pure red at 2000+ ppm with maximum pulse
+              r = 255; g = 0; b = 0;
+              should_pulse = true;
+              min_brightness = 0;
+              period_ms = 4000 - (co2-2000);
+            }
+          } else { //day mode
+            if (!id(co2_sensor_value).has_state()) {
+              // no co2 data - off
+              r = 0; g = 0; b = 0;
+            }
+            else if (co2 <= 400) {
+              // Pure blue at 400 ppm or below
+              r = 0; g = 0; b = 255;
+            }
+            else if (co2 <= 600) {
+              // Transition from blue (400) to green (600)
+              int t = (co2 - 400) * 255 / 200;
+              r = 0;
+              g = t;
+              b = (255 - t);
+            }
+            else if (co2 <= 800) {
+              // Transition from green (600) to orange (800)
+              int t = (co2 - 600) * 255 / 200;
+              r = t;
+              g = 255;
+              b = 0;
+            }
+            else if (co2 <= 1500) {
+              // Transition from orange (800) to red (1500)
+              int t = (co2 - 800) * 255 / 700;
+              r = 255;
+              g = (255 - t);
+              b = 0;
+              should_pulse = true;
+              
+              min_brightness = 255 - t;
+              
+              period_ms = 5000 - (t * 15);
+            }
+            else {
+              // Pure red at 1500+ ppm with maximum pulse
+              r = 255; g = 0; b = 0;
+              should_pulse = true;
+              min_brightness = 0;
+              period_ms = 1175 - (co2-1500)/4;
+            }
+          }
+          
+          // Update global variables
+          id(target_r) = r;
+          id(target_g) = g;
+          id(target_b) = b;
+          id(pulse_enabled) = should_pulse;
+          id(pulse_min_brightness) = min_brightness;
+          id(pulse_period_ms) = period_ms;
+
+          ESP_LOGD("StatusLED update", "total_bri: %d, period: %d, RGB=%d %d %d, pulse=%d, min_pul_bri=%d", brightness, period_ms, r, g, b, should_pulse, min_brightness);
+
+          // Apply the effect
+          auto call = id(status_led).turn_on();
+          call.set_effect("Dynamic Pulse");
+          call.perform();
