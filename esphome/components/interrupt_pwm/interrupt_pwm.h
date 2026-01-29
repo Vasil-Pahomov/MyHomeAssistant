@@ -7,13 +7,14 @@
 namespace esphome {
 namespace interrupt_pwm {
 
-#define MAX_PWM_CHANNELS 2
-#define PWM_TICK_PERIOD 800 // At 80 MHz, 8000 ticks = 100 µs
+#define MAX_PWM_CHANNELS 8
+#define PWM_TICK_PERIOD 800 // At 80 MHz, 800 ticks = 10 µs
 
 struct PWMChannel {
   uint8_t pin;
   volatile uint32_t duty_ticks;
-  bool active;
+  volatile bool active;
+  volatile bool pin_state;
 };
 
 class InterruptPWMOutput : public output::FloatOutput, public Component {
@@ -22,6 +23,7 @@ class InterruptPWMOutput : public output::FloatOutput, public Component {
     : pin_(pin), channel_id_(channel_id) {}
 
   void setup() override;
+  void dump_config() override;
   void write_state(float state) override;
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
@@ -34,8 +36,7 @@ class InterruptPWMOutput : public output::FloatOutput, public Component {
   static PWMChannel channels_[MAX_PWM_CHANNELS];
   static uint32_t pwm_period_ticks_;
   static volatile uint32_t tick_counter_;
-  static bool timer_initialized_;
-  static uint8_t active_channels_;
+  static volatile bool timer_initialized_;
 };
 
 }  // namespace interrupt_pwm
