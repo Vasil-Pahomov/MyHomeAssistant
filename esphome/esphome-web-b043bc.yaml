@@ -4,12 +4,6 @@ esphome:
   min_version: 2025.11.0
   name_add_mac_suffix: false
 
-  # Start flashing LED on boot
-  on_boot:
-    priority: -100  # Run after everything is initialized
-    then:
-      - script.execute: led_flash_script  
-
 esp8266:
   board: esp01_1m
 
@@ -26,6 +20,7 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  min_auth_mode: WPA2
 
 web_server:
   port: 80
@@ -36,6 +31,31 @@ external_components:
       type: local
       path: components
     components: [ interrupt_pwm ]
+
+# Import remote control codes
+<<: !include remote_codes.yaml
+
+# Global variables for timer functionality
+globals:
+  - id: timer_stage
+    type: int
+    restore_value: no
+    initial_value: '0'
+  
+  - id: current_brightness
+    type: float
+    restore_value: yes
+    initial_value: '1.0'
+  
+  - id: last_remote_time
+    type: unsigned long
+    restore_value: no
+    initial_value: '0'
+  
+  - id: last_nec_command
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 output:
 #  - platform: esp8266_pwm
@@ -105,14 +125,12 @@ light:
     restore_mode: RESTORE_DEFAULT_OFF
     
     on_turn_on:
-      - script.stop: led_flash_script
       - light.turn_on: status_led
 
     # Clean turn-off handler
     on_turn_off:
       then:
         - light.turn_off: status_led
-        - script.execute: led_flash_script
         # Force both LEDs off immediately
         - light.turn_off: led1
         - light.turn_off: led2
@@ -186,16 +204,247 @@ switch:
     id: relay_switch
     restore_mode: ALWAYS_OFF  # Start with relay off
 
-# Script for flashing LED
+# IR Receiver on GPIO14
+# remote_receiver:
+  # pin:
+    # number: GPIO14
+
+    # inverted: true
+    # mode:
+      # input: true
+      # pullup: false
+  # dump: []
+  # idle: 10ms
+  # on_nec:
+    # then:
+      # - lambda: |-
+          # if (x.address == strtol("${remote_address}", NULL, 16)) {
+            # unsigned long current_time = millis();
+            # uint32_t cmd = x.command;
+            
+            # // Store the last command for repeat handling
+            # id(last_nec_command) = cmd;
+            
+            # // UP button - increase brightness
+            # if (cmd == strtol("${button_up}", NULL, 16)) {
+              # float new_brightness = id(current_brightness) + 0.05;
+              # if (new_brightness > 1.0) new_brightness = 1.0;
+              # id(current_brightness) = new_brightness;
+              # auto call = id(dual_led).turn_on();
+              # call.set_transition_length(0);
+              # call.set_brightness(new_brightness);
+              # call.perform();
+            # }
+            
+            # // DOWN button - decrease brightness
+            # else if (cmd == strtol("${button_down}", NULL, 16)) {
+              # float new_brightness = id(current_brightness) - 0.05;
+              # if (new_brightness < 0.01) new_brightness = 0.01;
+              # id(current_brightness) = new_brightness;
+              # auto call = id(dual_led).turn_on();
+              # call.set_transition_length(0);
+              # call.set_brightness(new_brightness);
+              # call.perform();
+            # }
+            
+            # // ON button
+            # else if (cmd == strtol("${button_on}", NULL, 16)) {
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(id(current_brightness));
+              # call.perform();
+            # }
+            
+            # // OFF button
+            # else if (cmd == strtol("${button_off}", NULL, 16)) {
+              # id(dual_led).turn_off().perform();
+            # }
+            
+            # // Timer button
+            # else if (cmd == strtol("${button_timer}", NULL, 16)) {
+              # // Only respond to actual press, not repeats
+              # if (current_time - id(last_remote_time) > 300) {
+                # id(timer_setup_script).execute();
+              # }
+            # }
+            
+            # // Brightness presets 1-8
+            # else if (cmd == strtol("${button_1}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 0.125;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(0.125);
+              # call.perform();
+            # }
+            # else if (cmd == strtol("${button_2}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 0.25;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(0.25);
+              # call.perform();
+            # }
+            # else if (cmd == strtol("${button_3}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 0.375;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(0.375);
+              # call.perform();
+            # }
+            # else if (cmd == strtol("${button_4}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 0.5;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(0.5);
+              # call.perform();
+            # }
+            # else if (cmd == strtol("${button_5}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 0.625;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(0.625);
+              # call.perform();
+            # }
+            # else if (cmd == strtol("${button_6}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 0.75;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(0.75);
+              # call.perform();
+            # }
+            # else if (cmd == strtol("${button_7}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 0.875;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(0.875);
+              # call.perform();
+            # }
+            # else if (cmd == strtol("${button_8}", NULL, 16) && current_time - id(last_remote_time) > 300) {
+              # id(current_brightness) = 1.0;
+              # auto call = id(dual_led).turn_on();
+              # call.set_brightness(1.0);
+              # call.perform();
+            # }
+            
+            # id(last_remote_time) = current_time;
+          # }
+  
+  # # Handle NEC repeat codes (the short Pronto signals)
+  # on_pronto:
+    # then:
+      # - lambda: |-
+          # // NEC repeat is typically a short pronto code around 2-3 values
+          # // ESP_LOGD("remote", "pronto code detected, data length = %d", x.data.size());
+          # if (x.data.size() <= 40) {
+            # unsigned long current_time = millis();
+            # uint32_t last_cmd = id(last_nec_command);
+            # //ESP_LOGD("remote", "Last NEC command: 0x%04X", last_cmd);
+            # //ESP_LOGD("remote", "Current time: %lu", current_time);
+            # //ESP_LOGD("remote", "Last remote time: %lu", id(last_remote_time));
+            # //ESP_LOGD("remote", "Time diff: %lu ms", current_time - id(last_remote_time));
+            
+            # // Only process if we received a command recently (within 200ms)
+            # if (current_time - id(last_remote_time) < 200) {
+              # //ESP_LOGD("remote", "still within timeout period");
+              # // UP button repeat
+              # if (last_cmd == strtol("${button_up}", NULL, 16)) {
+                # //ESP_LOGD("remote", "up repeat");
+                # float new_brightness = id(current_brightness) + 0.05;
+                # if (new_brightness > 1.0) new_brightness = 1.0;
+                # id(current_brightness) = new_brightness;
+                # auto call = id(dual_led).turn_on();
+                # call.set_transition_length(0);
+                # call.set_brightness(new_brightness);
+                # call.perform();
+              # }
+              
+              # // DOWN button repeat
+              # else if (last_cmd == strtol("${button_down}", NULL, 16)) {
+                # //ESP_LOGD("remote", "down repeat");
+                # float new_brightness = id(current_brightness) - 0.05;
+                # if (new_brightness < 0.01) new_brightness = 0.01;
+                # id(current_brightness) = new_brightness;
+                # auto call = id(dual_led).turn_on();
+                # call.set_transition_length(0);
+                # call.set_brightness(new_brightness);
+                # call.perform();
+              # }
+              
+              # id(last_remote_time) = current_time;
+            # }
+          # }
+
+
 script:
-  - id: led_flash_script
+  # Timer setup script
+  - id: timer_setup_script
     mode: restart
     then:
-      - while:
-          condition:
-            lambda: 'return true;'
-          then:
-            - light.turn_on: status_led
-            - delay: 100ms  # 0.1 second on
-            - light.turn_off: status_led
-            - delay: 4900ms  # 4.9 seconds off (total = 5 seconds)
+      - lambda: |-
+          int stage = id(timer_stage);
+          stage = (stage + 1) % 5;  // Cycle through 0-4
+          id(timer_stage) = stage;
+      - script.execute: timer_acknowledgment
+      - delay: 10s  # 10 second timeout
+      - lambda: |-
+          // Start the actual timer based on stage
+          int stage = id(timer_stage);
+          int minutes = 0;
+          switch(stage) {
+            case 0: minutes = 20; break;
+            case 1: minutes = 40; break;
+            case 2: minutes = 60; break;
+            case 3: minutes = 120; break;
+            case 4: minutes = 180; break;
+          }
+          id(auto_off_timer).execute(minutes);
+  
+  # Timer acknowledgment (blink pattern)
+  - id: timer_acknowledgment
+    then:
+      - lambda: |-
+          int stage = id(timer_stage);
+          int blinks = 0;
+          int duration_ms = 0;
+          int pause_ms = 0;
+          
+          switch(stage) {
+            case 0:  // 20 min - 1 blink, 500ms
+              blinks = 1;
+              duration_ms = 500;
+              pause_ms = 500;
+              break;
+            case 1:  // 40 min - 2 blinks, 500ms each
+              blinks = 2;
+              duration_ms = 500;
+              pause_ms = 500;
+              break;
+            case 2:  // 1 hour - 1 blink, 1000ms
+              blinks = 1;
+              duration_ms = 1000;
+              pause_ms = 1000;
+              break;
+            case 3:  // 2 hours - 2 blinks, 1000ms each
+              blinks = 2;
+              duration_ms = 1000;
+              pause_ms = 1000;
+              break;
+            case 4:  // 3 hours - 3 blinks, 1000ms each
+              blinks = 3;
+              duration_ms = 1000;
+              pause_ms = 1000;
+              break;
+          }
+          
+          for(int i = 0; i < blinks; i++) {
+            id(dual_led).turn_off().perform();
+            delay(duration_ms);
+            id(dual_led).turn_on().set_brightness(id(current_brightness)).perform();
+            if(i < blinks - 1) {
+              delay(pause_ms);
+            }
+          }
+  
+  # Auto-off timer
+  - id: auto_off_timer
+    mode: restart
+    parameters:
+      minutes: int
+    then:
+      - delay: !lambda 'return minutes * 60 * 1000;'
+      - light.turn_off: dual_led
+      - lambda: |-
+          id(timer_stage) = 0;      
+      
+

@@ -8,8 +8,8 @@ template:
           'sensor.livingroom_temperature': 21,
           'sensor.bathroom_temperature': 22,
           'sensor.bedroom_temperature': 20,
-            'sensor.nikas_temperature': 20,
-            'sensor.radas_temperature': 18
+          'sensor.nikas_temperature': 20,
+          'sensor.radas_temperature': 17
           } %}
           {% set ns = namespace(low=false) %}
           {% for sensor, threshold in thresholds.items() %}
@@ -54,12 +54,12 @@ alert:
       - telegram_notifier
     message: >-
       {% set thresholds = {
-        'sensor.fireplace_temperature': 21,
-        'sensor.livingroom_temperature': 21,
-        'sensor.bathroom_temperature': 22,
-        'sensor.bedroom_temperature': 20,
-        'sensor.nikas_temperature': 21,
-        'sensor.radas_temperature': 19
+          'sensor.fireplace_temperature': 21,
+          'sensor.livingroom_temperature': 21,
+          'sensor.bathroom_temperature': 22,
+          'sensor.bedroom_temperature': 20,
+          'sensor.nikas_temperature': 20,
+          'sensor.radas_temperature': 17
       } %}
       {% set low_temps = namespace(sensors=[]) %}
       {% for sensor, threshold in thresholds.items() %}

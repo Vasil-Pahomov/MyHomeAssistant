@@ -1,0 +1,16 @@
+substitutions:
+  remote_address: "0xFF00"  # Your remote's address
+  
+  button_on: "0xBA45"
+  button_off: "0xB847"
+  button_up: "0xA55A"
+  button_down: "0xF708"
+  button_1: "0xBB44"
+  button_2: "0xBC43"
+  button_3: "0xF807"
+  button_4: "0xF609"
+  button_5: "0xE916"
+  button_6: "0xF20D"
+  button_7: "0xF30C"
+  button_8: "0xA15E"
+  button_timer: "0xB946"

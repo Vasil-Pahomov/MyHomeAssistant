@@ -1,46 +1,60 @@
 esphome:
   name: test-esp8266
   friendly_name: Test ESP8266
+  min_version: 2025.11.0
+  name_add_mac_suffix: false
 
 esp8266:
   board: esp01_1m
 
 # Enable logging
 logger:
-
+  level: DEBUG  # Shows all messages (DEBUG, INFO, WARN, ERROR)
+  # level: INFO  # Shows only INFO, WARN, ERROR (less verbose)
+  logs:
+    automation: DEBUG  # Specifically set automation logs to DEBUG level
+    
 # Enable Home Assistant API
 api:
-  encryption:
-    key: "kXqHH/cD/NttJFbixt/kX8YhVacYQ/gBPheVEMdeyhg="
-  reboot_timeout: 0s
 
+# Allow Over-The-Air updates
 ota:
   - platform: esphome
     password: "4ba4ac6dc95f4ee7e06b13fd1ff4582e"
-
+    
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   min_auth_mode: WPA2
 
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
-  ap:
-    ssid: "Test-Esp8266 Fallback Hotspot"
-    password: "WzPDNGgIfOj9"
+web_server:
+  port: 80
 
-captive_portal:
-    
-# External component configuration
 external_components:
   - source:
       type: local
       path: components
     components: [ interrupt_pwm ]
 
-web_server:
-  port: 80
-  
+sun:
+  latitude: 51.75
+  longitude: 19.46667
+  id: sun_position
 
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+globals:
+  - id: should_stop_animation
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+    
+  - id: animation_has_stopped
+    type: bool
+    restore_value: no
+    initial_value: 'true'
 output:
 #  - platform: esp8266_pwm
 #    id: led1_output
@@ -64,7 +78,7 @@ output:
     channel: 1
     min_power: 0.01
     zero_means_zero: true
-   
+
   - platform: template
     id: combined_output
     type: float
@@ -75,20 +89,54 @@ output:
       - output.set_level:
           id: led2_output
           level: !lambda 'return state / 2.0;'
+  
+  - platform: interrupt_pwm
+    id: balco1
+    pin: 13
+    channel: 2
+
+  - platform: interrupt_pwm
+    pin: 14
+    id: balco2
+    channel: 3
+
+#sensor:
+#  - platform: adc
+#    pin: GPIO17
+#    name: "External Brightness"
+#    id: ext_brightness
+#    update_interval: 1s
+#    filters:
+#      - sliding_window_moving_average:
+#          window_size: 10
+        
+light:
+  - platform: monochromatic
+    id: balc1
+    name: "B1"
+    output: balco1
+    gamma_correct: 1.0
+
+  - platform: monochromatic
+    id: balc2
+    name: "B2"
+    output: balco2
+    gamma_correct: 1.0
 
 # Individual lights (hidden)
-light:
   - platform: monochromatic
     id: led1
     output: led1_output
+    name: "LED1"
     internal: true
-    gamma_correct: 2.0
+    gamma_correct: 1.0
 
   - platform: monochromatic
     id: led2
     output: led2_output
+    name: "LED2"
     internal: true
-    gamma_correct: 2.0
+    gamma_correct: 1.0
 
   # Main light
   - platform: monochromatic
@@ -96,7 +144,7 @@ light:
     id: dual_led
     output: combined_output
     restore_mode: RESTORE_DEFAULT_OFF
-    gamma_correct: 2.0
+    gamma_correct: 1.0
     
     # Clean turn-off handler
     on_turn_off:
@@ -107,60 +155,190 @@ light:
         - output.turn_off: led1_output
         - output.turn_off: led2_output
 
-
     effects:
-      # Pure YAML alternating fade
-      - automation:
+      - lambda:
           name: "Alternating Fade"
-          sequence:
-            - while:
-                condition:
-                  lambda: 'return id(dual_led).current_values.is_on();'
-                then:
-                  - light.turn_on:
-                      id: led1
-                      brightness: 100%
-                      transition_length: 2s
-                  - light.turn_on:
-                      id: led2
-                      brightness: 0%
-                      transition_length: 2s
-                  - delay: 2s
-                  
-                  - if:
-                      condition:
-                        lambda: 'return id(dual_led).current_values.is_on();'
-                      then:
-                        - light.turn_on:
-                            id: led1
-                            brightness: 0%
-                            transition_length: 2s
-                        - light.turn_on:
-                            id: led2
-                            brightness: 100%
-                            transition_length: 2s
-                        - delay: 2s
+          update_interval: 100ms
+          lambda: |-
+            static bool initialized = false;
+            static uint32_t last_change = 0;
+            static bool phase = false;
+            static bool stopping = false;
             
-            - light.turn_off: led1
-            - light.turn_off: led2
+            // Initialize
+            if (!initialized) {
+              ESP_LOGD("animation", "Animation starting");
+              id(should_stop_animation) = false;
+              id(animation_has_stopped) = false;
+              last_change = millis();
+              phase = false;
+              stopping = false;
+              initialized = true;
+            }
+            
+            // Check if we should stop
+            if (id(should_stop_animation) && !stopping) {
+              ESP_LOGI("animation", "Stop signal received");
+              stopping = true;
+              auto call1 = id(led1).turn_off();
+              call1.set_transition_length(1000);
+              call1.perform();
+              auto call2 = id(led2).turn_off();
+              call2.set_transition_length(1000);
+              call2.perform();
+              return;
+            }
+            
+            // If stopping, wait for fade and exit
+            if (stopping) {
+              if (millis() - last_change > 1000) {
+                ESP_LOGI("animation", "Animation has stopped");
+                id(animation_has_stopped) = true;
+                initialized = false;
+                auto call = id(dual_led).turn_off();
+                call.set_effect("None");
+                call.perform();
+              }
+              last_change = millis();
+              return;
+            }
+            
+            // Normal animation
+            if ((millis() - last_change > 10000) || (last_change == 0)) {
+              phase = !phase;
+              last_change = millis();
+            
+              ESP_LOGI("animation", "Phase begin:", phase);
+              
+              if (phase) {
+                auto call1 = id(led1).turn_on();
+                call1.set_brightness(0.0);
+                call1.set_transition_length(5000);
+                call1.perform();
+                auto call2 = id(led2).turn_on();
+                call2.set_brightness(1.0);
+                call2.set_transition_length(5000);
+                call2.perform();
+              } else {
+                auto call1 = id(led1).turn_on();
+                call1.set_brightness(1.0);
+                call1.set_transition_length(5000);
+                call1.perform();
+                auto call2 = id(led2).turn_on();
+                call2.set_brightness(0.0);
+                call2.set_transition_length(5000);
+                call2.perform();
+              }
+            }
+
+
+
+# Automation script
+script:
+  - id: stop_animation_gracefully
+    mode: single
+    then:
+      - lambda: |-
+          const char* current_effect = id(dual_led).get_effect_name().c_str();
+          if (strcmp(current_effect, "Alternating Fade") == 0 && !id(animation_has_stopped)) {
+            ESP_LOGI("animation", "Signaling animation to stop gracefully");
+            id(should_stop_animation) = true;
+          } else {
+            ESP_LOGD("animation", "No animation running or already stopped");
+            id(animation_has_stopped) = true;
+            return;  // Exit early if no animation
+          }
       
+      # Wait for the animation to actually stop (non-blocking)
+      - wait_until:
+          condition:
+            lambda: 'return id(animation_has_stopped);'
+          timeout: 12s
       
- # Test buttons
+      - lambda: |-
+          if (id(animation_has_stopped)) {
+            ESP_LOGI("animation", "Animation stopped gracefully");
+          } else {
+            ESP_LOGW("animation", "Animation did not stop within 12 seconds");
+          }
+      
+      - delay: 100ms  # Give it a moment to clear the effect
+
+
+# Optional: Also trigger automation on time change (every minute)
+#interval:
+#  - interval: 10s
+#    then:
+#      - script.execute: check_and_control_lights
+
 button:
   - platform: template
-    name: "Start Alternating Fade"
+    name: "Test: Turn Dual Light OFF (simulate bright)"
     on_press:
-      - light.turn_on:
-          id: dual_led
-          brightness: 100%
-          effect: "Alternating Fade"
-  
-# IR Receiver on GPIO14
-remote_receiver:
-  pin:
-    number: GPIO14
-    inverted: true
-    mode:
-      input: true
-      pullup: false
-  dump: all  # This will show all received codes in the log  
+      then:
+        - lambda: 'ESP_LOGI("manual_test", "=== MANUAL OFF TEST ===");'
+        
+        - script.execute: stop_animation_gracefully
+        - script.wait: stop_animation_gracefully
+        
+        - lambda: |-
+            ESP_LOGI("manual_test", "Turning all lights OFF");
+            //id(balc1).turn_off().perform();
+            //id(balc2).turn_off().perform();
+            id(dual_led).turn_off().perform();
+            
+            ESP_LOGI("manual_test", "=== OFF TEST COMPLETE ===");
+
+  - platform: template
+    name: "Test: Dual Light to 10% (no animation)"
+    on_press:
+      then:
+        - lambda: |-
+            ESP_LOGI("manual_test", "=== MANUAL 10% TEST ===");
+            
+            //id(balc1).turn_on().set_brightness(1.0).perform();
+            //id(balc2).turn_on().set_brightness(1.0).perform();
+        
+        - script.execute: stop_animation_gracefully
+        - script.wait: stop_animation_gracefully
+        
+        - lambda: |-
+            ESP_LOGI("manual_test", "Setting dual LED to 10%%");
+            id(dual_led).turn_on().set_brightness(0.1).perform();
+            
+            ESP_LOGI("manual_test", "=== 10% TEST COMPLETE ===");
+
+  - platform: template
+    name: "Test: Dual Light to 100% (no animation)"
+    on_press:
+      then:
+        - lambda: |-
+            ESP_LOGI("manual_test", "=== MANUAL 100% TEST ===");
+            
+            //id(balc1).turn_on().set_brightness(1.0).perform();
+            //id(balc2).turn_on().set_brightness(1.0).perform();
+        
+        - script.execute: stop_animation_gracefully
+        - script.wait: stop_animation_gracefully
+        
+        - lambda: |-
+            ESP_LOGI("manual_test", "Setting dual LED to 100%%");
+            id(dual_led).turn_on().set_brightness(1.0).perform();
+            
+            ESP_LOGI("manual_test", "=== 100% TEST COMPLETE ===");
+
+  - platform: template
+    name: "Test: Turn Dual Light ON with Animation"
+    on_press:
+      then:
+        - lambda: |-
+            ESP_LOGI("manual_test", "=== MANUAL ON TEST (Animation) ===");
+            
+            ESP_LOGD("manual_test", "Turning on B1 and B2");
+            //id(balc1).turn_on().set_brightness(1.0).perform();
+            //id(balc2).turn_on().set_brightness(1.0).perform();
+            
+            ESP_LOGI("manual_test", "Starting Alternating Fade effect");
+            id(dual_led).turn_on().set_effect("Alternating Fade").perform();
+            
+            ESP_LOGI("manual_test", "=== ON TEST COMPLETE ===");

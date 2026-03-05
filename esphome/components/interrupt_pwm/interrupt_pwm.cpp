@@ -1,23 +1,107 @@
 #include "interrupt_pwm.h"
 #include "esphome/core/log.h"
 
-#ifdef USE_ESP8266
-extern "C" {
-#include "user_interface.h"
-}
-#endif
-
 namespace esphome {
 namespace interrupt_pwm {
 
 static const char *const TAG = "interrupt_pwm";
 
-// Initialize static members
 PWMChannel InterruptPWMOutput::channels_[MAX_PWM_CHANNELS] = {};
-uint32_t InterruptPWMOutput::pwm_period_ticks_ = 100;  // ticks per cycle (=PWM levels)
+volatile uint32_t InterruptPWMOutput::current_max_period_ = 100; 
 volatile uint32_t InterruptPWMOutput::tick_counter_ = 0;
 volatile bool InterruptPWMOutput::timer_initialized_ = false;
 
+void InterruptPWMOutput::write_state(float state) {
+  if (this->channel_id_ >= MAX_PWM_CHANNELS) return;
+  
+  state = clamp(state, 0.0f, 1.0f);
+  uint32_t duty = 0;
+  uint32_t target_max_period = 100; // Default 1000Hz (100 * 10µs)
+  
+
+  //ESP_LOGCONFIG(TAG, "Channel ID: %u, state %f", this->channel_id_, state);
+
+  if (state <= 0.0f) {
+    duty = 0;
+  } /*else if (state < 0.01f) {
+	// --- STEADY FREQUENCY REDUCTION LOGIC ---
+    // Below 1%, we keep the pulse at 1 tick (10µs) and stretch the period.
+    // 0.01 (1%) -> Period 100 (1000Hz)
+    // 0.001 (0.1%) -> Period 1000 (100Hz)
+
+	//use logic only if the other complement channel has minimum duty
+	uint32_t complementary_channel_duty = 
+	  (this->channel_id_ & 1) 
+	  ? channels_[this->channel_id_-1].duty_ticks
+      : channels_[this->channel_id_+1].duty_ticks;
+    
+    ESP_LOGCONFIG(TAG, "  Compl channel duty: %u", complementary_channel_duty);
+
+	if (complementary_channel_duty <= 1)
+	{
+		// Calculate required period to achieve 'state' with a 1-tick pulse:
+		// state = duty / period  =>  period = 1 / state
+		float calc_period = 1.0f / state;
+		target_max_period = static_cast<uint32_t>(clamp(calc_period, 100.0f, 1000.0f));
+		duty = 1; 
+	} else {
+		// Standard 1000Hz PWM when complementary channel is not set
+		duty = static_cast<uint32_t>(state * 100.0f);
+		target_max_period = 100;
+	}
+	
+  } */else {
+    // Standard 1000Hz PWM for brightness >= 1%
+    duty = static_cast<uint32_t>(state * 100.0f);
+    target_max_period = 100;
+  }
+
+  //ESP_LOGCONFIG(TAG, "PWM period: %u, channel %u, duty %d", target_max_period, this->channel_id_, duty);
+
+  noInterrupts();
+  current_max_period_ = target_max_period; 
+  channels_[this->channel_id_].duty_ticks = duty;
+  channels_[this->channel_id_].active = (duty > 0);
+  interrupts();
+}
+
+void IRAM_ATTR InterruptPWMOutput::timer_isr() {
+  tick_counter_++;
+  
+  if (tick_counter_ >= current_max_period_) {
+    tick_counter_ = 0;
+  }
+  
+  for (uint8_t i = 0; i < MAX_PWM_CHANNELS; i++) {
+    if (!channels_[i].active) continue;
+
+    bool new_state = false;
+    uint32_t duty = channels_[i].duty_ticks;
+    
+    if (duty == 0) {
+      new_state = false;
+    } else if (duty >= current_max_period_) {
+      new_state = true;
+    } else {
+      // Offset Even/Odd channels to balance H-Bridge load
+      if (i & 1) { 
+        if (tick_counter_ >= (current_max_period_ - duty)) new_state = true;
+      } else { 
+        if (tick_counter_ < duty) new_state = true;
+      }
+    }
+    
+    if (new_state != channels_[i].pin_state) {
+      channels_[i].pin_state = new_state;
+      if (new_state) GPOS = (1 << channels_[i].pin); //
+      else GPOC = (1 << channels_[i].pin);           //
+    }
+  }
+  
+  timer1_write(800); 
+}
+
+// ... setup() and dump_config() remain as in original file
 void InterruptPWMOutput::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Interrupt PWM Output...");
   ESP_LOGCONFIG(TAG, "  Channel ID: %u", this->channel_id_);
@@ -72,72 +156,6 @@ void InterruptPWMOutput::dump_config() {
   ESP_LOGCONFIG(TAG, "Interrupt PWM Output:");
   ESP_LOGCONFIG(TAG, "  Pin: GPIO%u", this->pin_);
   ESP_LOGCONFIG(TAG, "  Channel: %u", this->channel_id_);
-}
-
-void InterruptPWMOutput::write_state(float state) {
-  if (this->channel_id_ >= MAX_PWM_CHANNELS) {
-    return;
-  }
-  
-  // Clamp state to valid range
-  if (state < 0.0f) state = 0.0f;
-  if (state > 1.0f) state = 1.0f;
-  
-  uint32_t new_duty = static_cast<uint32_t>(state * pwm_period_ticks_);
-  
-  // Update atomically
-  noInterrupts();
-  channels_[this->channel_id_].duty_ticks = new_duty;
-  interrupts();
-}
-
-void IRAM_ATTR InterruptPWMOutput::timer_isr() {
-  // Increment tick counter
-  tick_counter_++;
-  if (tick_counter_ >= pwm_period_ticks_) {
-    tick_counter_ = 0;
-  }
-  
-  // Process all channels
-  for (uint8_t i = 0; i < MAX_PWM_CHANNELS; i++) {
-    if (!channels_[i].active) continue;
-
-    bool new_state = false;
-    
-    // Edge cases - full off / full on
-    if (channels_[i].duty_ticks == 0) {
-      new_state = false;
-    } else if (channels_[i].duty_ticks >= pwm_period_ticks_) {
-      new_state = true;
-    } else {
-      // For odd channels, PWM pulse is bound to the end of the cycle
-      if (i & 1) {
-        // Odd channel
-        if (tick_counter_ >= (pwm_period_ticks_ - channels_[i].duty_ticks)) {
-          new_state = true;
-        }
-      } else {
-        // Even channel
-        if (tick_counter_ < channels_[i].duty_ticks) {
-          new_state = true;
-        }
-      }
-    }
-    
-    // Only write if state changed
-    if (new_state != channels_[i].pin_state) {
-      channels_[i].pin_state = new_state;
-      // Direct register access for speed
-      if (new_state) {
-        GPOS = (1 << channels_[i].pin);
-      } else {
-        GPOC = (1 << channels_[i].pin);
-      }
-    }
-  }
-  
-  // Reload timer - CRITICAL!
-  timer1_write(PWM_TICK_PERIOD); 
 }
 
 }  // namespace interrupt_pwm
