@@ -4,12 +4,12 @@ template:
         name: "Any Room Temperature Low"        
         state: >-
           {% set thresholds = {
-          'sensor.fireplace_temperature': 21,
+          'sensor.fireplace_temperature': 20,
           'sensor.livingroom_temperature': 21,
           'sensor.bathroom_temperature': 22,
           'sensor.bedroom_temperature': 20,
           'sensor.nikas_temperature': 20,
-          'sensor.radas_temperature': 17
+          'sensor.radas_temperature': 18
           } %}
           {% set ns = namespace(low=false) %}
           {% for sensor, threshold in thresholds.items() %}
@@ -24,12 +24,12 @@ template:
         name: "Any Room Temperature High"
         state: >-
           {% set thresholds = {
-            'sensor.fireplace_temperature': 26,
-            'sensor.livingroom_temperature': 26,
-            'sensor.bathroom_temperature': 26,
-            'sensor.bedroom_temperature': 26,
+            'sensor.fireplace_temperature': 30,
+            'sensor.livingroom_temperature': 30,
+            'sensor.bathroom_temperature': 28,
+            'sensor.bedroom_temperature': 28,
             'sensor.nikas_temperature': 28,
-            'sensor.radas_temperature': 26
+            'sensor.radas_temperature': 28
           } %}
           {% set ns = namespace(high=false) %}
           {% for sensor, threshold in thresholds.items() %}
@@ -54,12 +54,12 @@ alert:
       - telegram_notifier
     message: >-
       {% set thresholds = {
-          'sensor.fireplace_temperature': 21,
+          'sensor.fireplace_temperature': 20,
           'sensor.livingroom_temperature': 21,
           'sensor.bathroom_temperature': 22,
           'sensor.bedroom_temperature': 20,
           'sensor.nikas_temperature': 20,
-          'sensor.radas_temperature': 17
+          'sensor.radas_temperature': 18
       } %}
       {% set low_temps = namespace(sensors=[]) %}
       {% for sensor, threshold in thresholds.items() %}
@@ -83,12 +83,12 @@ alert:
       - telegram_notifier
     message: >-
       {% set thresholds = {
-        'sensor.fireplace_temperature': 26,
-        'sensor.livingroom_temperature': 26,
-        'sensor.bathroom_temperature': 26,
-        'sensor.bedroom_temperature': 26,
+        'sensor.fireplace_temperature': 30,
+        'sensor.livingroom_temperature': 30,
+        'sensor.bathroom_temperature': 28,
+        'sensor.bedroom_temperature': 28,
         'sensor.nikas_temperature': 28,
-        'sensor.radas_temperature': 26
+        'sensor.radas_temperature': 28
       } %}
       {% set temps = namespace(sensors=[]) %}
       {% for sensor, threshold in thresholds.items() %}

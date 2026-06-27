@@ -1,0 +1,103 @@
+- id: '1771947290329'
+  alias: Turn flower light on when it's dark
+  description: ''
+  triggers:
+  - trigger: numeric_state
+    entity_id:
+    - sensor.pollightcontrol_external_brightness
+    below: 0.1
+  conditions:
+  - condition: device
+    type: is_off
+    device_id: 575e1dda346c4f365891b83921f1a502
+    entity_id: c5240e7eb35183f2299a9696cac9c646
+    domain: switch
+    metadata:
+      secondary: false
+  - condition: time
+    before: '22:00:00'
+    after: '15:00:00'
+  actions:
+  - type: turn_on
+    device_id: 575e1dda346c4f365891b83921f1a502
+    entity_id: c5240e7eb35183f2299a9696cac9c646
+    domain: switch
+  mode: single
+- id: '1771947376825'
+  alias: Turn flowerlight off at 22:00
+  description: ''
+  triggers:
+  - trigger: time
+    at: '22:00:00'
+  conditions: []
+  actions:
+  - type: turn_off
+    device_id: 575e1dda346c4f365891b83921f1a502
+    entity_id: c5240e7eb35183f2299a9696cac9c646
+    domain: switch
+    metadata:
+      secondary: false
+  mode: single
+- id: '1780086677978'
+  alias: Turn on fireplace backlight when it's dark
+  description: ''
+  triggers:
+  - trigger: numeric_state
+    entity_id:
+    - sensor.pollightcontrol_external_brightness
+    for:
+      hours: 0
+      minutes: 10
+      seconds: 0
+    below: 0.4
+  conditions:
+  - condition: time
+    after: '15:00:00'
+    before: '21:00:00'
+    weekday:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+    - sat
+    - sun
+  actions:
+  - action: yeelight.set_mode
+    metadata: {}
+    target:
+      device_id: 760f2a842433d19f0d4af74fa8639002
+    data:
+      mode: normal
+  - action: yeelight.set_color_temp_scene
+    metadata: {}
+    target:
+      device_id: 760f2a842433d19f0d4af74fa8639002
+    data:
+      kelvin: 4000
+      brightness: 100
+  mode: single
+- id: '1780086757372'
+  alias: Turn night mode in fireplace
+  description: ''
+  triggers:
+  - trigger: time
+    at: '21:30:00'
+    weekday:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+    - sat
+    - sun
+  conditions: []
+  actions:
+  - action: yeelight.set_color_temp_scene
+    metadata: {}
+    target:
+      device_id: 760f2a842433d19f0d4af74fa8639002
+    data:
+      kelvin: 2700
+      brightness: 5
+  mode: single

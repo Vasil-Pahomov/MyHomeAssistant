@@ -69,14 +69,12 @@ output:
     id: led1_output
     pin: 5
     channel: 0
-    min_power: 0.01
     zero_means_zero: true
 
   - platform: interrupt_pwm
     id: led2_output
     pin: 4
     channel: 1
-    min_power: 0.01
     zero_means_zero: true
 
   - platform: template
@@ -144,7 +142,7 @@ light:
     id: dual_led
     output: combined_output
     restore_mode: RESTORE_DEFAULT_OFF
-    gamma_correct: 1.0
+    gamma_correct: 1.8
     
     # Clean turn-off handler
     on_turn_off:

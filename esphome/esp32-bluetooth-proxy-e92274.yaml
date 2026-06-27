@@ -34,7 +34,9 @@ uart:
 time:
   - platform: homeassistant
     id: homeassistant_time
-
+  - platform: sntp
+    id: sntp_time
+    
 display:
   - platform: tm1637
     id: tm1637_display

@@ -1,0 +1,32 @@
+
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+homeassistant:
+  packages: !include_dir_named packages
+  
+notify:
+  - name: telegram_notifier
+    platform: telegram
+    chat_id: 6056213108
+    
+#radiacode:
+#  - mac_address: "52:43:06:50:10:BF"  # Your device's MAC
+#    service_uuid: "e63215e5-7003-49d8-96b0-b024798fb901"  # Placeholder; replace with actual
+#    char_uuid: "e63215e7-7003-49d8-96b0-b024798fb901"     # Placeholder; replace with actual
+#    scan_interval: 30  # Optional
+    
+logger:
+  default: info
+#  logs:
+#    homeassistant.components.bluetooth: debug
+#    custom_components.radiacode: debug
+    

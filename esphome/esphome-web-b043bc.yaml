@@ -32,8 +32,25 @@ external_components:
       path: components
     components: [ interrupt_pwm ]
 
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+  - platform: sntp
+    id: sntp_time
+    on_time:
+      # At 23:00 every night, start gradual dimming if the light is already on
+      - seconds: 0
+        minutes: 0
+        hours: 23
+        then:
+          - if:
+              condition:
+                light.is_on: dual_led
+              then:
+                - script.execute: gradual_dim
+
 # Import remote control codes
-<<: !include remote_codes.yaml
+#<<: !include remote_codes.yaml
 
 # Global variables for timer functionality
 globals:
@@ -71,15 +88,15 @@ output:
     id: led1_output
     pin: 5
     channel: 0
-    min_power: 0.01
     zero_means_zero: true
+    min_power: 0.0005
 
   - platform: interrupt_pwm
     id: led2_output
     pin: 4
     channel: 1
-    min_power: 0.01
     zero_means_zero: true
+    min_power: 0.0005
 
   - platform: template
     id: combined_output
@@ -109,28 +126,36 @@ light:
     id: led1
     output: led1_output
     internal: true
-    gamma_correct: 2.0
+    gamma_correct: 1.0
 
   - platform: monochromatic
     id: led2
     output: led2_output
     internal: true
-    gamma_correct: 2.0
+    gamma_correct: 1.0
 
   # Main light
   - platform: monochromatic
     name: "Dual LED Light"
     id: dual_led
     output: combined_output
+    gamma_correct: 1.8
     restore_mode: RESTORE_DEFAULT_OFF
     
     on_turn_on:
-      - light.turn_on: status_led
-
-    # Clean turn-off handler
+      then:
+        - lambda: |-
+            auto time = id(sntp_time).now();
+            if (!time.is_valid()) return;
+            int hour = time.hour;
+            bool is_night = (hour >= 23 || hour < 6);
+            if (is_night) {
+              id(gradual_dim).execute();
+            }
     on_turn_off:
       then:
-        - light.turn_off: status_led
+        # Clean turn-off handler
+        - script.stop: gradual_dim
         # Force both LEDs off immediately
         - light.turn_off: led1
         - light.turn_off: led2
@@ -447,4 +472,19 @@ script:
       - lambda: |-
           id(timer_stage) = 0;      
       
-
+  #dim until off at night
+  - id: gradual_dim
+    mode: restart
+    then:
+      - delay: 10min
+      - while:
+          condition:
+            and:
+              - light.is_on: dual_led
+              - lambda: 'return id(dual_led).current_values.get_brightness() > 0.05;'
+          then:
+            - light.dim_relative:
+                id: dual_led
+                relative_brightness: -1%
+                transition_length: 0s
+            - delay: 5s

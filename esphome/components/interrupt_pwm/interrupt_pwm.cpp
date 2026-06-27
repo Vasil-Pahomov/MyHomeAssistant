@@ -23,34 +23,30 @@ void InterruptPWMOutput::write_state(float state) {
 
   if (state <= 0.0f) {
     duty = 0;
-  } /*else if (state < 0.01f) {
+  } else if (state < 0.01f) {
 	// --- STEADY FREQUENCY REDUCTION LOGIC ---
     // Below 1%, we keep the pulse at 1 tick (10µs) and stretch the period.
-    // 0.01 (1%) -> Period 100 (1000Hz)
-    // 0.001 (0.1%) -> Period 1000 (100Hz)
-
-	//use logic only if the other complement channel has minimum duty
-	uint32_t complementary_channel_duty = 
-	  (this->channel_id_ & 1) 
-	  ? channels_[this->channel_id_-1].duty_ticks
-      : channels_[this->channel_id_+1].duty_ticks;
-    
-    ESP_LOGCONFIG(TAG, "  Compl channel duty: %u", complementary_channel_duty);
-
-	if (complementary_channel_duty <= 1)
+	
+	// Calculate required period to achieve 'state' with a 1-tick pulse:
+	// state = duty / period  =>  period = 1 / state
+	float calc_period = 1.0f / state;
+	
+	if (calc_period <= 2000.0f) 
 	{
-		// Calculate required period to achieve 'state' with a 1-tick pulse:
-		// state = duty / period  =>  period = 1 / state
-		float calc_period = 1.0f / state;
-		target_max_period = static_cast<uint32_t>(clamp(calc_period, 100.0f, 1000.0f));
-		duty = 1; 
+		target_max_period = static_cast<uint32_t>(clamp(calc_period, 100.0f, 2000.0f));
+		duty = 1;
 	} else {
-		// Standard 1000Hz PWM when complementary channel is not set
-		duty = static_cast<uint32_t>(state * 100.0f);
-		target_max_period = 100;
+		//too dark and the frequency seems to be too low - turn off completely
+		duty = 0;
 	}
 	
-  } */else {
+	//recalc other channels duty_ticks
+	for (int i=0;i<MAX_PWM_CHANNELS;i++) {
+		if (i != channel_id_) {
+			channels_[channel_id_].duty_ticks = static_cast<uint32_t>(channels_[channel_id_].state * target_max_period);
+		}
+	}
+  } else {
     // Standard 1000Hz PWM for brightness >= 1%
     duty = static_cast<uint32_t>(state * 100.0f);
     target_max_period = 100;
@@ -60,6 +56,7 @@ void InterruptPWMOutput::write_state(float state) {
 
   noInterrupts();
   current_max_period_ = target_max_period; 
+  channels_[this->channel_id_].state = state;
   channels_[this->channel_id_].duty_ticks = duty;
   channels_[this->channel_id_].active = (duty > 0);
   interrupts();

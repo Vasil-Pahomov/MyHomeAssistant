@@ -50,7 +50,9 @@ sun:
 time:
   - platform: homeassistant
     id: homeassistant_time
-
+  - platform: sntp
+    id: sntp_time
+    
 output:
 #  - platform: esp8266_pwm
 #    id: led1_output

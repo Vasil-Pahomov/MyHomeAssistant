@@ -13,6 +13,7 @@ namespace interrupt_pwm {
 
 struct PWMChannel {
   uint8_t pin;
+  float state;//used to store state value to recalculate duty_ticks when PWM period changes
   volatile uint32_t duty_ticks;
   volatile bool active;
   volatile bool pin_state;
